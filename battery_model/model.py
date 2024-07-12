@@ -97,7 +97,7 @@ def _plot_residual_analysis(model,test_y, test_x):
 
 ###### TEST AREA #########
 # sgdregressor(X_train1,y_train1,X_test1, y_test1)
-voting(x_train,y_train)
+lassolarcv(x_train,y_train, x_test, y_test)
 
 
 
