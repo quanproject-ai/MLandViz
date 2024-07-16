@@ -206,4 +206,4 @@ print(apply_multiple_model(
 )
 print(voting_regressors(x=feature_df, y=target))
 
-#!Todo: paremeters tuning of the best 3 models, data imbalance SMOTE, data processing (how to create fake data to account)
+#!Todo: paremeters tuning of the best 3 models, data imbalance SMOTE, data processing (how to create fake data to account), feature construction
