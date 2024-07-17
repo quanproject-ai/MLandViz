@@ -6,16 +6,16 @@ import matplotlib.pyplot as plt
 import time
 
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
+from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.inspection import permutation_importance
 ## a lot of ML Models
-from sklearn.svm import SVR
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import (
     LassoLarsCV,
     SGDRegressor,
     LinearRegression,
+    TweedieRegressor,
 )
 from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.ensemble import (
@@ -38,10 +38,10 @@ feature_df = pd.DataFrame(feature_scaled, columns=feature.columns)
 ##Model Identification##
 
 
-Classifier = [GaussianNB(),RandomForestClassifier(max_features=5,max_leaf_nodes=5), KNeighborsClassifier()]
-Regression = [LassoLarsCV(), SGDRegressor()]
+Classifier = [GaussianNB(),RandomForestClassifier(n_estimators=50,max_features=8,max_leaf_nodes=5), KNeighborsClassifier()]
+Regression = [LassoLarsCV(), SGDRegressor(),LinearRegression(),TweedieRegressor(),RandomForestRegressor()]
 Clustering = [KMeans(),AgglomerativeClustering()]
-
+All_models = [*Classifier, *Regression, *Clustering]
 
 def modeling_with_entire_dataset(algorithm, test_size: float) -> tuple:
     """Input a ML model and return performance metrics
@@ -73,7 +73,79 @@ def modeling_with_entire_dataset(algorithm, test_size: float) -> tuple:
     return (mse, mae, rmse, score_val, residuals, predict)
 
 
-def apply_multiple_model(algorithm: list, test_size: float) -> DataFrame:
+def get_feature_importance_from_model(algorithm,test_size:float):
+    result_dict = {
+        'Feature name': [],
+        'Importance Mean': [],
+        'Importance stdv': [],
+    }
+    x_train, x_test, y_train, y_test = train_test_split(
+        feature_df, target, test_size=test_size
+    )
+    model = algorithm.fit(x_train,y_train)
+    model.score(x_test,y_test)
+    f_importances_metrics = permutation_importance(model,x_test,y_test,n_repeats=30)
+    for i in f_importances_metrics.importances_mean.argsort()[::-1]:
+        result_dict['Feature name'].append(x_test.columns[i])
+        result_dict['Importance Mean'].append(f_importances_metrics.importances_mean[i])
+        result_dict['Importance stdv'].append(f_importances_metrics.importances_std[i])
+    result_df = pd.DataFrame(result_dict)
+    return result_df
+
+
+def voting_regressors(x, y,test_size):
+    """Generate 1 plot of predicted value vs. training samples, and 4 plots of each regressor algorithms used in this fucntion
+
+    Args:
+        x (DataFrame): feature df
+        y (ndarray): target array
+
+    Returns:
+        DataFrame: A summary table includes performance metrics (mae, mse, rmse, avg r^2 and time)
+    """
+    clf1 = GradientBoostingRegressor()
+    clf2 = RandomForestRegressor()
+    clf3 = LinearRegression()
+    clf1.fit(x, y)
+    clf2.fit(x, y)
+    clf3.fit(x, y)
+    voting_clf = VotingRegressor(estimators=[("gb", clf1), ("rf", clf2), ("lr", clf3)])
+    voting_clf.fit(x, y)
+    x_test = x.sample(frac=test_size)
+    pred_clf1 = clf1.predict(x_test)
+    pred_clf2 = clf2.predict(x_test)
+    pred_clf3 = clf3.predict(x_test)
+    pred_clf4 = voting_clf.predict(x_test)
+    _plot_voting_regressors(pred_clf1, pred_clf2, pred_clf3, pred_clf4)
+    report_df = multiple_model_pipeline([clf1,clf2,clf3,voting_clf],test_size)
+    return report_df
+
+
+def voting_classifier(x, y,test_size):
+    """Generate a df with the important metrics for each classifying models
+    Args:
+        x (DataFrame): feature df
+        y (ndarray): target array
+
+    Returns:
+        DataFrame: A summary table includes performance metrics (mae, mse, rmse, avg r^2 and time)
+    """
+    clf1 = GaussianNB()
+    clf2 = RandomForestClassifier(n_estimators=50,max_features=8,max_leaf_nodes=5)
+    clf3 = KNeighborsClassifier()
+    voting_clf = VotingClassifier(estimators=[("gb", clf1), ("rf", clf2), ("kn", clf3)])
+    clf1.fit(x, y)
+    clf2.fit(x, y)
+    clf3.fit(x, y)
+    voting_clf.fit(x, y)
+    report_df = multiple_model_pipeline([clf1,clf2,clf3,voting_clf],test_size)
+    return report_df
+
+
+
+#pipeline
+
+def multiple_model_pipeline(algorithm: list, test_size: float) -> DataFrame:
     """Input a list of algorithms and a return a summary table has all of performance metrics and time trained
     Also, there is a plot of residual vs. predicted value per algorithm
 
@@ -115,32 +187,6 @@ def apply_multiple_model(algorithm: list, test_size: float) -> DataFrame:
     return report_df
 
 
-def voting_regressors(x, y,test_size):
-    """Generate 1 plot of predicted value vs. training samples, and 4 plots of each regressor algorithms used in this fucntion
-
-    Args:
-        x (DataFrame): feature df
-        y (ndarray): target array
-
-    Returns:
-        DataFrame: A summary table includes performance metrics (mae, mse, rmse, avg r^2 and time)
-    """
-    clf1 = GradientBoostingRegressor()
-    clf2 = RandomForestRegressor()
-    clf3 = LinearRegression()
-    clf1.fit(x, y)
-    clf2.fit(x, y)
-    clf3.fit(x, y)
-    voting_clf = VotingRegressor(estimators=[("gb", clf1), ("rf", clf2), ("lr", clf3)])
-    voting_clf.fit(x, y)
-    x_test = x.sample(frac=test_size)
-    pred_clf1 = clf1.predict(x_test)
-    pred_clf2 = clf2.predict(x_test)
-    pred_clf3 = clf3.predict(x_test)
-    pred_clf4 = voting_clf.predict(x_test)
-    _plot_voting_regressors(pred_clf1, pred_clf2, pred_clf3, pred_clf4)
-    report_df = apply_multiple_model([clf1,clf2,clf3,voting_clf],test_size)
-    return report_df
 
 ##Helper function##
 def _plot_residual_analysis(algorithm, x, y):
@@ -180,11 +226,8 @@ def _plot_voting_regressors(model_1, model_2, model_3, vote_model):
     plt.title("Regressor predictions and their average")
     plt.show()
 
-
-(apply_multiple_model(Classifier,0.2))
-
+multiple_model_pipeline(All_models,0.2)
 
 
 #!Todo
 # : paremeters tuning of the best 3 models, data imbalance SMOTE, data processing (how to create fake data to account), feature construction
-# need to do voting classifier and use permutation importance on all models to get the importances factor
