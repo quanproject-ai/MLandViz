@@ -8,30 +8,21 @@ import time
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold
 from sklearn.metrics import mean_absolute_error, mean_squared_error
-
+from sklearn.inspection import permutation_importance
 ## a lot of ML Models
-from sklearn.ensemble import (
-    RandomForestRegressor,
-    AdaBoostRegressor,
-    GradientBoostingRegressor,
-    BaggingRegressor,
-)
 from sklearn.svm import SVR
-from sklearn.tree import DecisionTreeRegressor, ExtraTreeRegressor
-from sklearn.neighbors import KNeighborsRegressor
+from sklearn.neighbors import KNeighborsClassifier
 from sklearn.linear_model import (
     LassoLarsCV,
     SGDRegressor,
-    LogisticRegression,
     LinearRegression,
 )
+from sklearn.cluster import KMeans, AgglomerativeClustering
 from sklearn.ensemble import (
     VotingClassifier,
     RandomForestClassifier,
     RandomForestRegressor,
-    AdaBoostRegressor,
     GradientBoostingRegressor,
-    BaggingRegressor,
     VotingRegressor,
 )
 from sklearn.naive_bayes import GaussianNB
@@ -44,6 +35,12 @@ target = battery_df["RUL"]
 scale_factor = StandardScaler()
 feature_scaled = scale_factor.fit_transform(feature)
 feature_df = pd.DataFrame(feature_scaled, columns=feature.columns)
+##Model Identification##
+
+
+Classifier = [GaussianNB(),RandomForestClassifier(max_features=5,max_leaf_nodes=5), KNeighborsClassifier()]
+Regression = [LassoLarsCV(), SGDRegressor()]
+Clustering = [KMeans(),AgglomerativeClustering()]
 
 
 def modeling_with_entire_dataset(algorithm, test_size: float) -> tuple:
@@ -57,14 +54,15 @@ def modeling_with_entire_dataset(algorithm, test_size: float) -> tuple:
     Returns:
         tuple: tuple of performance metrics in order (mse, mae, rmse, score valuation, residuals and predict)
     """
-    # train-test split
     x_train, x_test, y_train, y_test = train_test_split(
         feature_df, target, test_size=test_size
     )
-    # train model
     model = algorithm
     model.fit(x_train, y_train)
-    predict = model.predict(x_test)
+    try:
+        predict = model.predict(x_test)
+    except AttributeError: #some model does not have predict function call
+        predict = model.fit_predict(x_test)
     mse = mean_squared_error(y_test, predict)
     mae = mean_absolute_error(y_test, predict)
     rmse = sqrt(mse)
@@ -73,8 +71,6 @@ def modeling_with_entire_dataset(algorithm, test_size: float) -> tuple:
     )
     residuals = y_test - predict
     return (mse, mae, rmse, score_val, residuals, predict)
-
-
 
 
 def apply_multiple_model(algorithm: list, test_size: float) -> DataFrame:
@@ -185,25 +181,10 @@ def _plot_voting_regressors(model_1, model_2, model_3, vote_model):
     plt.show()
 
 
+(apply_multiple_model(Classifier,0.2))
 
 
-# print(apply_multiple_model(
-#     algorithm=[
-#         LassoLarsCV(),
-#         GaussianNB(),
-#         DecisionTreeRegressor(),
-#         ExtraTreeRegressor(),
-#         KNeighborsRegressor(),
-#         SGDRegressor(),
-#         # LogisticRegression(),
-#         # RandomForestRegressor(),
-#         # AdaBoostRegressor(),
-#         # GradientBoostingRegressor(),
-#         # BaggingRegressor(),
-#     ],
-#     test_size=0.2,
-# )
 
-(voting_regressors(x=feature_df, y=target,test_size=0.1))
-
-#!Todo: paremeters tuning of the best 3 models, data imbalance SMOTE, data processing (how to create fake data to account), feature construction
+#!Todo
+# : paremeters tuning of the best 3 models, data imbalance SMOTE, data processing (how to create fake data to account), feature construction
+# need to do voting classifier and use permutation importance on all models to get the importances factor
