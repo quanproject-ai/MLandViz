@@ -5,8 +5,18 @@ from pandas import DataFrame
 import matplotlib.pyplot as plt
 
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split, cross_val_score
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.model_selection import (
+    train_test_split,
+    cross_val_score,
+    GridSearchCV,
+    RandomizedSearchCV,
+)
+from sklearn.metrics import (
+    mean_absolute_error,
+    mean_squared_error,
+    make_scorer,
+    r2_score,
+)
 from sklearn.inspection import permutation_importance
 
 from sklearn.neighbors import KNeighborsClassifier
@@ -43,8 +53,7 @@ def tuning_rf(
         min_samples_leaf=min_samples_leaf,
         min_weight_fraction_leaf=min_weight_fraction_leaf,
         max_features=max_features,
-        bootstrap= False, # use entire dataset,
-        verbose= 1
+        verbose=0,
     )
     model.fit(x_train, y_train)
     predict = model.predict(x_test)
@@ -66,7 +75,7 @@ def pipeline_tuning():
         "rmse": [],
         "avg R^2 score": [],
     }
-    criterion = [8,8,8,8,8,8,8,8,8,8,8,8]
+    criterion = [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
     for i in criterion:
         metrics = tuning_rf(
             estimator=810,
@@ -87,7 +96,46 @@ def pipeline_tuning():
     return val_df
 
 
-pipeline_tuning()
+def tuning_rf_v2(test_size: float):
+    x_train, x_test, y_train, y_test = train_test_split(
+        feature, target, train_size=test_size
+    )
+    scoring_dict = {
+        "MSE": make_scorer(mean_squared_error, greater_is_better=False),
+        "R2": make_scorer(r2_score),
+    }
+    param_grid = {
+        "min_samples_split": [2, 6],
+        "min_samples_leaf": [1, 2],
+        "max_features": [
+            6,
+            8,
+        ],
+    }
+    rf = RandomForestRegressor(
+        criterion="absolute_error",
+        n_estimators=800,
+        max_depth=None,
+        random_state=None,
+        min_weight_fraction_leaf=0.0,
+    )
+    grid_search = RandomizedSearchCV(
+        estimator=rf,
+        param_distributions=param_grid,
+        scoring=scoring_dict,
+        refit="R2",
+        n_jobs=-1,
+        cv=6,
+        n_iter=10,
+        verbose=1,
+    )
+    grid_search.fit(x_train, y_train)
+    print("Best parameters:", grid_search.best_params_)
+    print("Best score:", grid_search.best_score_)
+    df_result = pd.DataFrame(grid_search.cv_results_).sort_values(
+        by="mean_test_R2", ascending=False
+    )
+    return df_result
 
 
 # n = 810 -> 0.989
@@ -96,6 +144,38 @@ pipeline_tuning()
 # min_samples_split: going above 100 decrease R2 alot. 6 gives the best R2 0.98887
 # min_samples_leaf: 1 gives the best R2
 # min_weight_fraction_leaf: 0.0 gives the best and reduce as it is larger than 0.2
-#max_features : 8 gives the best. 0.1 < float < 1.0 is similar to 1.0. higher than 8 reduce r2. log and sqrt2 shows lower r2 score than 8
+# max_features : 8 gives the best. 0.1 < float < 1.0 is similar to 1.0. higher than 8 reduce r2. log and sqrt2 shows lower r2 score than 8
 
 #!TODO: use gridsearchcv and randomizedsearchcv
+tuning_rf_v2(0.2)
+
+# Note: RandomSearchGrid below give this param as the highest:
+# Standard no parameters in RandomForest
+# Best parameters: {'random_state': 100, 'n_estimators': 10, 'min_weight_fraction_leaf': 0.0, 'min_samples_split': 6, 'min_samples_leaf': 1, 'max_features': 6, 'max_depth': None, 'criterion': 'poisson'}
+# Best score: 0.9820621506303263
+# param_grid = {
+#         "n_estimators": [10, 100, 810, 1000],
+#         "criterion": ["poisson", "squared_error", "absolute_error"],
+#         "max_depth": [None, 1000, 100, 2000],
+#         "min_samples_split": [2, 5, 6, 10, 100],
+#         "min_samples_leaf": [1, 2, 4, 6],
+#         "min_weight_fraction_leaf": [0.0, 0.1],
+#         "max_features": [0.5, 1, 6, 8, 12, "log"],
+#         "random_state": [None, 10, 100, 1000],
+#     }
+
+
+# Note: RandomSearchGrid below give this param as the highest (2nd run)
+# Random forest params :  criterion="absolute_error", max_depth=None, random_state=None, min_weight_fraction_leaf=0.0
+# Best parameters: {'n_estimators': 1000, 'min_samples_split': 2, 'min_samples_leaf': 2, 'max_features': 8}
+# Best score is 0.9855
+# param_grid = {
+#         "n_estimators": [100, 810, 1000],
+#         "min_samples_split": [2, 5, 6],
+#         "min_samples_leaf": [2, 4,6],
+#         "max_features": [
+#             0.5,
+#             6,
+#             8,
+#         ],
+#     }
