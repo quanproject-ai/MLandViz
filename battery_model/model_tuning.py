@@ -1,9 +1,7 @@
 import numpy as np
 from numpy import sqrt
 import pandas as pd
-from pandas import DataFrame
-import matplotlib.pyplot as plt
-
+import datapreprocess as dp
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import (
     train_test_split,
@@ -18,7 +16,6 @@ from sklearn.metrics import (
     r2_score,
 )
 from sklearn.inspection import permutation_importance
-
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
@@ -26,35 +23,23 @@ from sklearn.naive_bayes import GaussianNB
 battery_df = pd.read_csv("Battery_RUL.csv")
 feature = battery_df.drop(columns=["RUL", "Cycle_Index"], axis=1)
 target = battery_df["RUL"]
-##scaling data
-scale_factor = StandardScaler()
-feature_scaled = scale_factor.fit_transform(feature)
-feature_df = pd.DataFrame(feature_scaled, columns=feature.columns)
 
 
-def tuning_rf(
-    estimator: int,
-    criterion: str,
-    test_size: float,
-    max_depth: int,
-    min_samples_split: int | float,
-    min_samples_leaf: int | float,
-    min_weight_fraction_leaf: float,
-    max_features: int | float | str,
-):
+####manual tunnig for Randomforestregressor
+def get_performance_metrics_from_model(method, test_size: float) -> tuple:
+    """
+    Return the performance metric of a model
+    Args:
+        method (class): ML models from sklearn
+        test_size (float): percent of test size as float
+
+    Returns:
+        tuple: tuple of the performance metrics in this order (mse,mae,rmse,score_val)
+    """
     x_train, x_test, y_train, y_test = train_test_split(
         feature, target, train_size=test_size
     )
-    model = RandomForestRegressor(
-        n_estimators=estimator,
-        criterion=criterion,
-        max_depth=max_depth,
-        min_samples_split=min_samples_split,
-        min_samples_leaf=min_samples_leaf,
-        min_weight_fraction_leaf=min_weight_fraction_leaf,
-        max_features=max_features,
-        verbose=0,
-    )
+    model = method
     model.fit(x_train, y_train)
     predict = model.predict(x_test)
     mse = mean_squared_error(y_test, predict)
@@ -63,11 +48,19 @@ def tuning_rf(
     score_val = np.mean(
         cross_val_score(model, x_train, y_train, cv=5, scoring="r2"),
     )
-    # residuals = y_test - predict
     return (mse, mae, rmse, score_val)
 
 
-def pipeline_tuning():
+def pipeline_tuning(method, preset_params:dict, params:list):
+    """Function tunes model one parameters at a time.
+
+    Args:
+        method (_type_): _description_
+        preset_paremeters (dict): _description_
+
+    Returns:
+        _type_: _description_
+    """
     val_dict = {
         "tunning_parameters": [],
         "mse": [],
@@ -75,67 +68,30 @@ def pipeline_tuning():
         "rmse": [],
         "avg R^2 score": [],
     }
-    criterion = [8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8, 8]
-    for i in criterion:
-        metrics = tuning_rf(
-            estimator=810,
-            criterion="squared_error",
-            max_depth=1000,
-            test_size=0.2,
-            min_samples_split=6,
-            min_samples_leaf=1,
-            min_weight_fraction_leaf=0.0,
-            max_features=8,
-        )
-        val_dict["tunning_parameters"].append(i)
-        val_dict["mse"].append(metrics[0])
-        val_dict["mae"].append(metrics[1])
-        val_dict["rmse"].append(metrics[2])
-        val_dict["avg R^2 score"].append(metrics[3])
+    for key,value in preset_params.items():
+        if value is None:
+            for i in params:
+                preset_params.update({key:i})
+                metrics = get_performance_metrics_from_model(
+                    method=method(**preset_params), test_size=0.2
+                )
+                val_dict["tunning_parameters"].append(i)
+                val_dict["mse"].append(metrics[0])
+                val_dict["mae"].append(metrics[1])
+                val_dict["rmse"].append(metrics[2])
+                val_dict["avg R^2 score"].append(metrics[3])
     val_df = pd.DataFrame(val_dict).sort_values(by="avg R^2 score", ascending=0)
     return val_df
 
+method_params = {
+    'n_estimators':800,
+    'criterion' :None,
+}
+tuning_params = ["squared_error", "absolute_error", "friedman_mse", "poisson"]
 
-def tuning_rf_v2(test_size: float):
-    x_train, x_test, y_train, y_test = train_test_split(
-        feature, target, train_size=test_size
-    )
-    scoring_dict = {
-        "MSE": make_scorer(mean_squared_error, greater_is_better=False),
-        "R2": make_scorer(r2_score),
-    }
-    param_grid = {
-        "min_samples_split": [2, 6],
-        "min_samples_leaf": [1, 2],
-        "max_features": [
-            6,
-            8,
-        ],
-    }
-    rf = RandomForestRegressor(
-        criterion="absolute_error",
-        n_estimators=800,
-        max_depth=None,
-        random_state=None,
-        min_weight_fraction_leaf=0.0,
-    )
-    grid_search = RandomizedSearchCV(
-        estimator=rf,
-        param_distributions=param_grid,
-        scoring=scoring_dict,
-        refit="R2",
-        n_jobs=-1,
-        cv=6,
-        n_iter=10,
-        verbose=1,
-    )
-    grid_search.fit(x_train, y_train)
-    print("Best parameters:", grid_search.best_params_)
-    print("Best score:", grid_search.best_score_)
-    df_result = pd.DataFrame(grid_search.cv_results_).sort_values(
-        by="mean_test_R2", ascending=False
-    )
-    return df_result
+
+pipeline_tuning(method=RandomForestRegressor,preset_params=method_params,params= tuning_params)
+
 
 
 # n = 810 -> 0.989
@@ -146,8 +102,45 @@ def tuning_rf_v2(test_size: float):
 # min_weight_fraction_leaf: 0.0 gives the best and reduce as it is larger than 0.2
 # max_features : 8 gives the best. 0.1 < float < 1.0 is similar to 1.0. higher than 8 reduce r2. log and sqrt2 shows lower r2 score than 8
 
-#!TODO: use gridsearchcv and randomizedsearchcv
-tuning_rf_v2(0.2)
+
+###tuning using built-in methods from scikit learn
+def grid_tuning_rf(test_size: float):
+    x_train, x_test, y_train, y_test = train_test_split(
+        feature, target, train_size=test_size
+    )
+    scoring_dict = {
+        "MSE": make_scorer(mean_squared_error, greater_is_better=False),
+        "R2": make_scorer(r2_score),
+    }
+    param_grid = {
+        "min_samples_split": [2, 6],
+    }
+    rf = RandomForestRegressor(
+        criterion="absolute_error",
+        n_estimators=800,
+        max_depth=None,
+        random_state=None,
+        min_weight_fraction_leaf=0.0,
+        max_features=7,
+        min_samples_leaf=1,
+    )
+    grid_search = GridSearchCV(
+        estimator=rf,
+        param_grid=param_grid,
+        scoring=scoring_dict,
+        refit="R2",
+        n_jobs=-1,
+        cv=6,
+        verbose=1,
+    )
+    grid_search.fit(x_train, y_train)
+    print("Best parameters:", grid_search.best_params_)
+    print("Best score:", grid_search.best_score_)
+    df_result = pd.DataFrame(grid_search.cv_results_).sort_values(
+        by="mean_test_R2", ascending=False
+    )
+    return df_result
+
 
 # Note: RandomSearchGrid below give this param as the highest:
 # Standard no parameters in RandomForest
