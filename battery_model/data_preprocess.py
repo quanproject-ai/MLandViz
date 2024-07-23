@@ -1,6 +1,7 @@
 # import numpy as np
 import pandas as pd
 from pandas import DataFrame, arrays
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import (
     MinMaxScaler,
     StandardScaler,
@@ -11,6 +12,8 @@ from imblearn.over_sampling import SMOTE, RandomOverSampler,ADASYN, BorderlineSM
 from imblearn.under_sampling import TomekLinks, RandomUnderSampler,ClusterCentroids
 
 battery_df = pd.read_csv("Battery_RUL.csv")
+feature = battery_df.drop(columns=["RUL", "Cycle_Index"], axis=1)
+target = battery_df["RUL"]
 
 
 def handle_na_in_df(df: DataFrame, how: str) -> DataFrame:
@@ -57,4 +60,16 @@ def apply_oversample_techniques(method,x_features:DataFrame, y_target:arrays) ->
     x_res, y_res = technique.fit_resample(x_features,y_target)
     return (x_res, y_res)
 
-battery_df
+def split_train_test_set(feature:DataFrame, target:arrays, size:float) -> tuple:
+    """Split train and test set based on feature, target and size percentage
+
+    Args:
+        feature (DataFrame): contains features
+        target (arrays): contain target for modeling
+        size (float): percentage of data size as a float
+
+    Returns:
+        tuple: tuple as follows (x_train,x_test,y_train,y_test))
+    """
+    x_train,x_test,y_train,y_test = train_test_split(feature,target,test_size=size)
+    return (x_train,x_test,y_train,y_test)

@@ -1,7 +1,8 @@
 import numpy as np
 from numpy import sqrt
 import pandas as pd
-import datapreprocess as dp
+from pandas import DataFrame
+import data_preprocess as dp
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import (
     train_test_split,
@@ -20,25 +21,27 @@ from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.naive_bayes import GaussianNB
 
-battery_df = pd.read_csv("Battery_RUL.csv")
-feature = battery_df.drop(columns=["RUL", "Cycle_Index"], axis=1)
-target = battery_df["RUL"]
-
 
 ####manual tunnig for Randomforestregressor
-def get_performance_metrics_from_model(method, test_size: float) -> tuple:
+def get_performance_metrics_from_model(
+    x_train,
+    x_test,
+    y_train,
+    y_test,
+    method,
+) -> tuple:
     """
     Return the performance metric of a model
     Args:
-        method (class): ML models from sklearn
-        test_size (float): percent of test size as float
+        x_train : feature data set for training
+        x_test : feature data set for testing
+        y_train : target data set for training
+        y_test : target data set for testing
+        method  : ML models from sklearn
 
     Returns:
         tuple: tuple of the performance metrics in this order (mse,mae,rmse,score_val)
     """
-    x_train, x_test, y_train, y_test = train_test_split(
-        feature, target, train_size=test_size
-    )
     model = method
     model.fit(x_train, y_train)
     predict = model.predict(x_test)
@@ -51,87 +54,72 @@ def get_performance_metrics_from_model(method, test_size: float) -> tuple:
     return (mse, mae, rmse, score_val)
 
 
-def pipeline_tuning(method, preset_params:dict, params:list):
-    """Function tunes model one parameters at a time.
+def manually_pipline_tuning(
+    method, preset_params: dict, tuning_name: dict, tuning_params: list
+) -> DataFrame:
+    """Function tune model manually without using builtin sklearn functions. This function is meant to get an understand
+    of how each model's parameters contribute to the performance metrics.
 
     Args:
-        method (_type_): _description_
-        preset_paremeters (dict): _description_
+        method: sklearn ML models
+        preset_params (dict): preset params of ML models
+        tuning_name (dict): the name of the tuning parameters
+        tuning_params (list): the list of items applying for that model
 
     Returns:
-        _type_: _description_
+        DataFrame: A df table shows each tuning parameters its associated performance metrics
     """
+    x_train, x_test, y_train, y_test = dp.split_train_test_set(
+        dp.feature, dp.target, size=0.2
+    )
+    key_tuning_name = next(iter(tuning_name))  # get the key of the tuning name
     val_dict = {
-        "tunning_parameters": [],
+        key_tuning_name: [],
         "mse": [],
         "mae": [],
         "rmse": [],
         "avg R^2 score": [],
     }
-    for key,value in preset_params.items():
-        if value is None:
-            for i in params:
-                preset_params.update({key:i})
-                metrics = get_performance_metrics_from_model(
-                    method=method(**preset_params), test_size=0.2
-                )
-                val_dict["tunning_parameters"].append(i)
-                val_dict["mse"].append(metrics[0])
-                val_dict["mae"].append(metrics[1])
-                val_dict["rmse"].append(metrics[2])
-                val_dict["avg R^2 score"].append(metrics[3])
+    for value in tuning_params:
+        tuning_name[key_tuning_name] = value
+        preset_params.update(tuning_name)
+        print("getting results for:", method(**preset_params))
+        metrics = get_performance_metrics_from_model(
+            x_train, x_test, y_train, y_test, method=method(**preset_params)
+        )
+        val_dict[key_tuning_name].append(value)
+        val_dict["mse"].append(metrics[0])
+        val_dict["mae"].append(metrics[1])
+        val_dict["rmse"].append(metrics[2])
+        val_dict["avg R^2 score"].append(metrics[3])
     val_df = pd.DataFrame(val_dict).sort_values(by="avg R^2 score", ascending=0)
     return val_df
 
-method_params = {
-    'n_estimators':800,
-    'criterion' :None,
-}
-tuning_params = ["squared_error", "absolute_error", "friedman_mse", "poisson"]
-
-
-pipeline_tuning(method=RandomForestRegressor,preset_params=method_params,params= tuning_params)
-
-
-
-# n = 810 -> 0.989
-# criterion: either poisson (0.986) or squared error (0.985)
-# max_depth: None actually gives lower R^2, 1000 gives 0.9888
-# min_samples_split: going above 100 decrease R2 alot. 6 gives the best R2 0.98887
-# min_samples_leaf: 1 gives the best R2
-# min_weight_fraction_leaf: 0.0 gives the best and reduce as it is larger than 0.2
-# max_features : 8 gives the best. 0.1 < float < 1.0 is similar to 1.0. higher than 8 reduce r2. log and sqrt2 shows lower r2 score than 8
-
 
 ###tuning using built-in methods from scikit learn
-def grid_tuning_rf(test_size: float):
-    x_train, x_test, y_train, y_test = train_test_split(
-        feature, target, train_size=test_size
-    )
-    scoring_dict = {
-        "MSE": make_scorer(mean_squared_error, greater_is_better=False),
-        "R2": make_scorer(r2_score),
-    }
-    param_grid = {
-        "min_samples_split": [2, 6],
-    }
-    rf = RandomForestRegressor(
-        criterion="absolute_error",
-        n_estimators=800,
-        max_depth=None,
-        random_state=None,
-        min_weight_fraction_leaf=0.0,
-        max_features=7,
-        min_samples_leaf=1,
+def grid_tuning(grid: dict, score: dict, model, refit_var: str) -> DataFrame:
+    """Use gridsearchcv to tune a model with specific parameters and scoring metrics
+
+    Args:
+        grid (dict): parameters that need tuning in format dict(key:[value])
+        score (dict): parameters that need tuning in format dict(key:sklearn scorer(type of error/score))
+        model: sklearn model class
+        refit_var (str): refit key mentioned in the keys in score dictionary
+
+    Returns:
+        DataFrame : DataFrame from GridSearchCV giving performance of each parameters 
+    """
+    x_train, x_test, y_train, y_test = dp.split_train_test_set(
+        dp.feature, dp.target, 0.2
     )
     grid_search = GridSearchCV(
-        estimator=rf,
-        param_grid=param_grid,
-        scoring=scoring_dict,
-        refit="R2",
+        estimator=model,
+        param_grid=grid,
+        scoring=score,
+        refit=refit_var,
         n_jobs=-1,
         cv=6,
-        verbose=1,
+        verbose=0,
     )
     grid_search.fit(x_train, y_train)
     print("Best parameters:", grid_search.best_params_)
@@ -147,7 +135,7 @@ def grid_tuning_rf(test_size: float):
 # Best parameters: {'random_state': 100, 'n_estimators': 10, 'min_weight_fraction_leaf': 0.0, 'min_samples_split': 6, 'min_samples_leaf': 1, 'max_features': 6, 'max_depth': None, 'criterion': 'poisson'}
 # Best score: 0.9820621506303263
 # param_grid = {
-#         "n_estimators": [10, 100, 810, 1000],
+#         "n_estimators": [10, 100, 810, 1000],w
 #         "criterion": ["poisson", "squared_error", "absolute_error"],
 #         "max_depth": [None, 1000, 100, 2000],
 #         "min_samples_split": [2, 5, 6, 10, 100],
